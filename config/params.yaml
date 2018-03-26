@@ -1,0 +1,3 @@
+results_topic: "/dialogflow_results"
+text_topic: "/dialogflow_text"
+project_id: "frasier-robocup-qual"

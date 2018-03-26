@@ -1,0 +1,3 @@
+string action
+string fulfillment_text
+string parameters
