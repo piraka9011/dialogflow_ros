@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>ros_dialogflow</name>
+  <name>dialogflow_ros</name>
   <version>0.1.0</version>
   <description>The ros_dialogflow package</description>
   <maintainer email="anas9011@gmail.com">Anas Abou Allaban</maintainer>
