@@ -1,5 +1,5 @@
 <launch>
-    <rosparam command="load" file="$(find ros_dialogflow)/config/params.yaml"/>
-    <node name="mic_client" pkg="ros_dialogflow" type="mic_client.py" output="screen" respawn="true"/>
-    <node name="dialogflow_client" pkg="ros_dialogflow" type="dialogflow_client.py" output="screen"/>
+    <rosparam command="load" file="$(find dialogflow_ros)/config/params.yaml"/>
+    <node name="mic_client" pkg="dialogflow_ros" type="mic_client.py" output="screen" respawn="true"/>
+    <node name="dialogflow_client" pkg="dialogflow_ros" type="dialogflow_client.py" output="screen"/>
 </launch>

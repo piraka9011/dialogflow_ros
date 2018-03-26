@@ -5,7 +5,7 @@ import Queue
 import rospy
 from std_msgs.msg import String
 from google.protobuf.json_format import MessageToJson
-from ros_dialogflow.msg import DialogflowResult
+from dialogflow_ros.msg import DialogflowResult
 
 
 class DialogflowClient:
