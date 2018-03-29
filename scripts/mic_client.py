@@ -9,7 +9,7 @@ import rospy
 from std_msgs.msg import String
 
 
-class GspeechClient:
+class GspeechClient(object):
     def __init__(self):
         # Audio stream input setup
         FORMAT = pyaudio.paInt16
