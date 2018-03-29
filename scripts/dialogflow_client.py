@@ -8,10 +8,10 @@ from google.protobuf.json_format import MessageToJson
 from dialogflow_ros.msg import DialogflowResult
 
 
-class DialogflowClient:
+class DialogflowClient(object):
     def __init__(self):
         # Dialogflow params
-        self.project_id = rospy.get_param('/project_id', 'frasier-robocup-qual')
+        self.project_id = rospy.get_param('/project_id', 'my-project')
         self.session_id = 'debug'
         self.session = None
         self.language_code = 'en-US'

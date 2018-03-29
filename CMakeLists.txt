@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(ros_dialogflow)
+project(dialogflow_ros)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -7,6 +7,7 @@ project(ros_dialogflow)
 find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
+  message_generation
 )
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -51,3 +52,18 @@ include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
 )
+
+
+## Mark executable scripts (Python etc.) for installation
+## in contrast to setup.py, you can choose the destination
+install(PROGRAMS
+  scripts/dialogflow_client.py
+  scripts/mic_client.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# Mark other files for installation (e.g. launch and bag files, etc.)
+foreach (dir launch config)
+    install(DIRECTORY ${dir}/
+    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/${dir})
+endforeach(dir)
