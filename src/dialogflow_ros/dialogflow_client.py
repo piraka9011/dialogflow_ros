@@ -4,6 +4,7 @@
 import dialogflow_v2
 from dialogflow_v2.types import InputAudioConfig, QueryInput, TextInput, StreamingDetectIntentRequest
 from dialogflow_v2.gapic.enums import AudioEncoding
+from google.api_core.exceptions import Cancelled
 
 # System
 from errno import ECONNREFUSED
@@ -37,6 +38,7 @@ class DialogflowClient(object):
         self.audio = pyaudio.PyAudio()
         # If we are using the audio server then we need to setup our audio collection differently
         if self.USE_AUDIO_SERVER:
+            rospy.logdebug("DF_CLIENT: Using audio server.")
             # Create an audio stream
             self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
                                           rate=RATE, output=True,
@@ -70,6 +72,7 @@ class DialogflowClient(object):
                 self.__del__()
         # Typical stream config uses stream_callback to get data instead
         else:
+            rospy.logdebug("DF_CLIENT: Using mic input.")
             self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
                                           rate=RATE, input=True,
                                           frames_per_buffer=self.CHUNK,
@@ -164,7 +167,7 @@ class DialogflowClient(object):
                 try:
                     chunk = self._buff.get(block=False)
                     if chunk is None:
-                        return
+                        break
                 except Queue.Empty:
                     rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
                     break
@@ -197,7 +200,7 @@ class DialogflowClient(object):
         df_msg.parameters = [DialogflowParameter(name=str(name), value=str(value))
                              for name, value in query_result.parameters.items()]
         df_msg.contexts = [self._fill_context(context) for context in query_result.output_contexts]
-        df_msg.intent = query_result.intent
+        df_msg.intent = query_result.intent.display_name
         rospy.logdebug("DF_CLIENT: Results:\n"
                        "Query Text: {}\n"
                        "Detected intent: {} (Confidence: {})\n"
@@ -233,8 +236,11 @@ class DialogflowClient(object):
         requests = self._generator()
         responses = self._session_cli.streaming_detect_intent(requests)
         response = None
-        for response in responses:
-            rospy.logdebug('DF_CLIENT: Intermediate transcript: "{}".'.format(response.recognition_result.transcript))
+        try:
+            for response in responses:
+                rospy.logdebug('DF_CLIENT: Intermediate transcript: "{}".'.format(response.recognition_result.transcript))
+        except Cancelled:
+            pass
         # The result from the last response is the final transcript along with the detected content.
         final_resp = response.query_result
         if final_resp.query_text == '':
