@@ -239,12 +239,13 @@ class DialogflowClient(object):
         try:
             for response in responses:
                 rospy.logdebug('DF_CLIENT: Intermediate transcript: "{}".'.format(response.recognition_result.transcript))
+            if response is None:
+                rospy.logwarn("DF_CLIENT: No response received!")
+                return None
+            final_resp = response.query_result
         except Cancelled:
             pass
         # The result from the last response is the final transcript along with the detected content.
-        final_resp = response.query_result
-        if final_resp.query_text == '':
-            rospy.logwarn("DF_CLIENT: No audio received!")
         df_msg = self._fill_ros_msg(final_resp)
         # Pub
         self._results_pub.publish(df_msg)
@@ -253,6 +254,7 @@ class DialogflowClient(object):
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
+        self.detect_intent_stream()
         rospy.spin()
 
     def __del__(self):
