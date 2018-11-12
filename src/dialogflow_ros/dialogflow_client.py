@@ -2,24 +2,26 @@
 
 # Dialogflow
 import dialogflow_v2
-from dialogflow_v2.types import InputAudioConfig, QueryInput, TextInput, StreamingDetectIntentRequest
+from dialogflow_v2.types import Context, InputAudioConfig, QueryInput, QueryParameters,\
+    TextInput, StreamingDetectIntentRequest
 from dialogflow_v2.gapic.enums import AudioEncoding
 from google.api_core.exceptions import Cancelled
 
 # System
-from errno import ECONNREFUSED
 import pyaudio
 import Queue
 import socket
 from threading import Thread
 from uuid import uuid4
+from yaml import load, YAMLError
 # Use to convert Struct messages to JSON
 from google.protobuf.json_format import MessageToJson
 
 # ROS
 import rospy
+from rospkg import RosPack
 from std_msgs.msg import String
-from dialogflow_ros.msg import DialogflowResult, DialogflowParameter, DialogflowContext
+from dialogflow_ros.msg import DialogflowResult, DialogflowParameter, DialogflowContext, DialogflowRequest
 
 
 class DialogflowClient(object):
@@ -28,10 +30,43 @@ class DialogflowClient(object):
         # Default behavior is no.
         self.USE_AUDIO_SERVER = rospy.get_param('/dialogflow_client/use_audio_server', False)
         self.DEBUG = rospy.get_param('/dialogflow_client/debug', False)
-        # Mic stream input setup
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
         RATE = 16000
+
+        # Get hints/clues
+        rp = RosPack()
+        file_dir = rp.get_path('dialogflow_ros') + '/config/context.yaml'
+        with open(file_dir, 'r') as f:
+            try:
+                self.phrase_hints = load(f)
+            except YAMLError:
+                rospy.logwarn("DF_CLIENT: Unable to open phrase hints yaml file!")
+                self.phrase_hints = []
+
+        # Dialogflow params
+        project_id = rospy.get_param('/dialogflow_client/project_id', 'my-project-id')
+        session_id = str(uuid4())   # Random
+        self._language_code = language_code
+        self.last_contexts = []
+        # DF Audio Setup
+        audio_encoding = AudioEncoding.AUDIO_ENCODING_LINEAR_16
+        self._audio_config = InputAudioConfig(audio_encoding=audio_encoding,
+                                              language_code=self._language_code,
+                                              sample_rate_hertz=RATE,
+                                              phrase_hints=self.phrase_hints)
+        # Create a session
+        self._session_cli = dialogflow_v2.SessionsClient()
+        self._session = self._session_cli.session_path(project_id, session_id)
+        rospy.logdebug("DF_CLIENT: Session Path: {}".format(self._session))
+
+        # ROS Pubs/subs
+        results_topic = rospy.get_param('/dialogflow_client/results_topic', '/dialogflow_client/results')
+        requests_topic = rospy.get_param('/dialogflow_client/requests_topic', '/dialogflow_client/requests')
+        self._results_pub = rospy.Publisher(results_topic, DialogflowResult, queue_size=10)
+        self._request_sub = rospy.Subscriber(requests_topic, String, self._request_cb)
+
+        # Mic stream input setup
         self.CHUNK = 4096
         self._buff = Queue.Queue()  # Buffer to hold audio data
         self._closed = False
@@ -78,25 +113,6 @@ class DialogflowClient(object):
                                           frames_per_buffer=self.CHUNK,
                                           stream_callback=self._get_audio_data)
 
-        # Dialogflow params
-        project_id = rospy.get_param('/dialogflow_client/project_id', 'my-project-id')
-        session_id = str(uuid4())   # Random
-        self._language_code = language_code
-        # DF Audio Setup
-        audio_encoding = AudioEncoding.AUDIO_ENCODING_LINEAR_16
-        self._audio_config = InputAudioConfig(audio_encoding=audio_encoding,
-                                              language_code=self._language_code,
-                                              sample_rate_hertz=RATE)
-        # Create a session
-        self._session_cli = dialogflow_v2.SessionsClient()
-        self._session = self._session_cli.session_path(project_id, session_id)
-        rospy.logdebug("DF_CLIENT: Session Path: {}".format(self._session))
-
-        # ROS Pubs/subs
-        results_topic = rospy.get_param('/dialogflow_client/results_topic', '/dialogflow_client/results')
-        requests_topic = rospy.get_param('/dialogflow_client/requests_topic', '/dialogflow_client/requests')
-        self._results_pub = rospy.Publisher(results_topic, DialogflowResult, queue_size=10)
-        self._request_sub = rospy.Subscriber(requests_topic, String, self._request_cb)
         rospy.loginfo("DF_CLIENT: Ready!")
 
     # ========================================= #
@@ -107,6 +123,8 @@ class DialogflowClient(object):
         """ROS Callback that sends text received from a topic to Dialogflow,
         :param msg: A std_msgs String message.
         """
+        # query_text = msg.query_test
+
         df_msg = self.detect_intent_text(msg.data)
         self._results_pub.publish(df_msg)
         rospy.loginfo("DF_CLIENT: Response from Dialogflow:\n{}".format(df_msg))
@@ -130,9 +148,6 @@ class DialogflowClient(object):
             while True:
                 data = self.s.recv(self.CHUNK)
                 self._buff.put(data)
-                # Play audio
-                if self.DEBUG:
-                    self.stream.write(data)
         except KeyboardInterrupt as e:
             rospy.logwarn("DF_CLIENT: Shutdown from thread: {}".format(e))
             self.__del__()
@@ -156,23 +171,37 @@ class DialogflowClient(object):
         First request carries config data per Dialogflow docs.
         :rtype: Iterator[:class:`StreamingDetectIntentRequest`]
         """
-        while not self._closed:
-            # First message contains session, query_input, and params
-            query_input = QueryInput(audio_config=self._audio_config)
-            yield StreamingDetectIntentRequest(session=self._session,
-                                               query_input=query_input,
-                                               single_utterance=True)
-            # Read in a stream till the end using a non-blocking get()
-            while True:
-                try:
-                    chunk = self._buff.get(block=False)
-                    if chunk is None:
-                        break
-                except Queue.Empty:
-                    rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
+        # First message contains session, query_input, and params
+        query_input = QueryInput(audio_config=self._audio_config)
+        if self.last_contexts:
+            params = QueryParameters(contexts=self.last_contexts)
+        else:
+            params = QueryParameters()
+        yield StreamingDetectIntentRequest(session=self._session,
+                                           query_input=query_input,
+                                           query_params=params,
+                                           single_utterance=True)
+        # Read in a stream till the end using a non-blocking get()
+        while True:
+            try:
+                chunk = self._buff.get(block=False)
+                if chunk is None:
                     break
-
                 yield StreamingDetectIntentRequest(input_audio=chunk)
+            except Queue.Empty:
+                rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
+
+    def _create_context(self, context):
+        new_context = Context()
+        new_context.name = context.name
+        new_context.lifespan_count = context.lifespan_count
+        return new_context
+
+    def _create_parameters(self, parameters):
+        params = {}
+        for param in parameters:
+            params[param.name] = param.value
+        return params
 
     def _fill_context(self, context):
         """Utility function that fills the context received from Dialogflow into the ROS msg.
@@ -242,30 +271,32 @@ class DialogflowClient(object):
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")
                 return None
+            # The result from the last response is the final transcript along with the detected content.
             final_resp = response.query_result
-        except Cancelled:
-            pass
-        # The result from the last response is the final transcript along with the detected content.
-        df_msg = self._fill_ros_msg(final_resp)
-        # Pub
-        self._results_pub.publish(df_msg)
-        return df_msg
+            df_msg = self._fill_ros_msg(final_resp)
+            # Pub
+            self._results_pub.publish(df_msg)
+            self.last_contexts = final_resp.output_contexts
+            return df_msg
+        except Cancelled as c:
+            rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled exception:\n{}".format(c))
 
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
         self.detect_intent_stream()
-        rospy.spin()
+        # rospy.spin()
 
     def __del__(self):
         """Close as cleanly as possible"""
         rospy.loginfo("DF_CLIENT: Shutting down")
         self._closed = True
         self._buff.put(None)
+        self.stream.close()
         exit()
 
 
 if __name__ == '__main__':
-    rospy.init_node('dialogflow_client')
+    rospy.init_node('dialogflow_client', log_level=rospy.DEBUG)
     df = DialogflowClient()
     df.start()
