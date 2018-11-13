@@ -21,7 +21,7 @@ from google.protobuf.json_format import MessageToJson
 import rospy
 from rospkg import RosPack
 from std_msgs.msg import String
-from dialogflow_ros.msg import DialogflowResult, DialogflowParameter, DialogflowContext, DialogflowRequest
+from dialogflow_ros.msg import *
 
 
 class DialogflowClient(object):
@@ -121,17 +121,26 @@ class DialogflowClient(object):
 
     def _request_cb(self, msg):
         """ROS Callback that sends text received from a topic to Dialogflow,
-        :param msg: A std_msgs String message.
+        :param msg: A DialogflowRequest message.
         """
-        # query_text = msg.query_test
-
-        df_msg = self.detect_intent_text(msg.data)
-        self._results_pub.publish(df_msg)
-        rospy.loginfo("DF_CLIENT: Response from Dialogflow:\n{}".format(df_msg))
+        df_msg = self.detect_intent_text(msg)
+        rospy.loginfo("DF_CLIENT: Request received:\n{}".format(df_msg))
 
     # ==================================== #
     #           Utility Functions          #
     # ==================================== #
+
+    def _print_contexts(self, contexts):
+        result = []
+        for context in contexts:
+            param_list = []
+            for parameter in context.parameters:
+                param_list.append("{}: {}".format(parameter, context.parameters[parameter]))
+            temp_str = "Name: {}\nParameters: {}\n".format(context.name.split('/')[-1],
+                                                           ", ".join(param_list))
+            result.append(temp_str)
+        result = "\n".join(result)
+        return result
 
     def _connect(self):
         """Creates a socket to listen for audio data from the server"""
@@ -191,21 +200,47 @@ class DialogflowClient(object):
             except Queue.Empty:
                 rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
 
-    def _create_context(self, context):
-        new_context = Context()
-        new_context.name = context.name
-        new_context.lifespan_count = context.lifespan_count
-        return new_context
-
     def _create_parameters(self, parameters):
+        """Create a DF compatible parameter dictionary
+        :param parameters: DialogflowParameter message
+        :type parameters: list(DialogflowParameter)
+        :return: Parameters as a dictionary
+        :rtpe: dict
+        """
         params = {}
         for param in parameters:
             params[param.name] = param.value
         return params
 
+    def _create_query_parameters(self, contexts):
+        """Creates a QueryParameter with contexts. Last contexts used if contexts is empty.
+        No contexts if none found.
+        :param contexts: The ROS DialogflowContext message
+        :type contexts: list(DialogflowContext)
+        :return: A Dialogflow query parameters object.
+        :rtype: QueryParameters
+        """
+        if contexts:
+            rospy.logdebug("DF_CLIENT: Using the following contexts:\n{}".format(self._print_contexts(contexts)))
+            context_list = []
+            for context in contexts:
+                parameters = self._create_parameters(context.parameters)
+                new_context = Context(name=context.name, lifespan_count=context.lifespan_count,
+                                      parameters=parameters)
+                context_list.append(new_context)
+            return QueryParameters(contexts=context_list)
+        else:
+            rospy.logwarn("DF_CLIENT: No contexts found! Checking for previous contexts...")
+            if self.last_contexts:
+                return QueryParameters(contexts=self.last_contexts)
+            else:
+                rospy.logwarn("DF_CLIENT: No previous contexts! QueryParameters is empty.")
+                return QueryParameters()
+
     def _fill_context(self, context):
         """Utility function that fills the context received from Dialogflow into the ROS msg.
         :param context: The output_context received from Dialogflow.
+        :type context: Context
         :return: The ROS DialogflowContext msg.
         :rtype: DialogflowContext
         """
@@ -219,6 +254,7 @@ class DialogflowClient(object):
     def _fill_ros_msg(self, query_result):
         """Utility function that fills the result received from Dialogflow into the ROS msg.
         :param query_result: The query_result received from Dialogflow.
+        :type query_result: QueryResult
         :return: The ROS DialogflowResult msg.
         :rtype: DialogflowResult
         """
@@ -233,27 +269,39 @@ class DialogflowClient(object):
         rospy.logdebug("DF_CLIENT: Results:\n"
                        "Query Text: {}\n"
                        "Detected intent: {} (Confidence: {})\n"
+                       "Contexts: {}\n"
                        "Fulfillment text: {}\n"
-                       "Action: {}".format(query_result.query_text, query_result.intent.display_name,
-                                           query_result.intent_detection_confidence, df_msg.fulfillment_text,
-                                           df_msg.action))
+                       "Action: {}\n"
+                       "Parameters: {}".format(query_result.query_text,
+                                               query_result.intent.display_name,
+                                               query_result.intent_detection_confidence,
+                                               self._print_contexts(query_result.output_contexts),
+                                               df_msg.fulfillment_text,
+                                               df_msg.action,
+                                               query_result.parameters))
         return df_msg
 
     # ======================================== #
     #           Dialogflow Functions           #
     # ======================================== #
 
-    def detect_intent_text(self, text):
+    def detect_intent_text(self, msg):
         """Use the Dialogflow API to detect a user's intent. Goto the Dialogflow
         console to define intents and params.
-        :param text: Google Speech API fulfillment text
+        :param msg: DialogflowRequest msg
         :return query_result: Dialogflow's query_result with action parameters
         :rtype: DialogflowResult
         """
-        text_input = TextInput(text=text, language_code=self._language_code)
+        # Create the Query Input
+        text_input = TextInput(text=msg.query_text, language_code=self._language_code)
         query_input = QueryInput(text=text_input)
+        # Create QueryParameters
+        params = self._create_query_parameters(msg.contexts)
         response = self._session_cli.detect_intent(session=self._session,
-                                                   query_input=query_input)
+                                                   query_input=query_input,
+                                                   query_params=params)
+        # Store context for future use
+        self.last_contexts = response.query_result.output_contexts
         df_msg = self._fill_ros_msg(response.query_result)
         self._results_pub.publish(df_msg)
         return df_msg
@@ -267,7 +315,11 @@ class DialogflowClient(object):
         response = None
         try:
             for response in responses:
-                rospy.logdebug('DF_CLIENT: Intermediate transcript: "{}".'.format(response.recognition_result.transcript))
+                rospy.logdebug('DF_CLIENT: Intermediate transcript: "{}".'.format(
+                    response.recognition_result.transcript))
+        except Cancelled as c:
+            rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled exception:\n{}".format(c))
+
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")
                 return None
@@ -278,8 +330,6 @@ class DialogflowClient(object):
             self._results_pub.publish(df_msg)
             self.last_contexts = final_resp.output_contexts
             return df_msg
-        except Cancelled as c:
-            rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled exception:\n{}".format(c))
 
     def start(self):
         """Start the dialogflow client"""
