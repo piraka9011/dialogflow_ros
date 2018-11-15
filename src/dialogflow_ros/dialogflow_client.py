@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 # Dialogflow
-import dialogflow_v2
+import dialogflow_v2beta1
 from dialogflow_v2beta1.types import Context, InputAudioConfig,\
     OutputAudioConfig, QueryInput, QueryParameters, \
     SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
-from dialogflow_v2beta1.enums import OutputAudioEncoding
-from dialogflow_v2.gapic.enums import AudioEncoding
-from google.api_core.exceptions import Cancelled
+from dialogflow_v2beta1.gapic.enums import AudioEncoding, OutputAudioEncoding
+from google.api_core.exceptions import Cancelled, ServiceUnavailable
 # Use to convert Struct messages to JSON
 from google.protobuf.json_format import MessageToJson
 # Python
@@ -72,11 +71,10 @@ class DialogflowClient(object):
                                               model='command_and_search')
 
         self._output_audio_config = OutputAudioConfig(
-                audio_encoding=OutputAudioEncoding.
-                    OUTPUT_AUDIO_ENCODING_LINEAR_16)
+                audio_encoding=OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16)
 
         # Create a session
-        self._session_cli = dialogflow_v2.SessionsClient()
+        self._session_cli = dialogflow_v2beta1.SessionsClient()
         self._session = self._session_cli.session_path(project_id, session_id)
         rospy.logdebug("DF_CLIENT: Session Path: {}".format(self._session))
 
@@ -111,6 +109,9 @@ class DialogflowClient(object):
             self._connect_audio_server()
         else:
             self._connect_audio_mic()
+
+        if self.PLAY_AUDIO:
+            self._create_audio_output()
 
         rospy.loginfo("DF_CLIENT: Ready!")
 
@@ -205,7 +206,7 @@ class DialogflowClient(object):
                 self._buff.put(data)
         except KeyboardInterrupt as e:
             rospy.logwarn("DF_CLIENT: Shutdown from thread: {}".format(e))
-            self.__del__()
+            self.exit()
 
     def _get_audio_data(self, in_data, frame_count, time_info, status):
         """PyAudio callback to continuously get audio data from the mic and put
@@ -241,10 +242,9 @@ class DialogflowClient(object):
         # First message contains session, query_input, and params
         query_input = QueryInput(audio_config=self._audio_config)
         params = self._create_query_parameters()
-        yield StreamingDetectIntentRequest(session=self._session,
-                                           query_input=query_input,
-                                           query_params=params,
-                                           single_utterance=True)
+        yield StreamingDetectIntentRequest(
+            session=self._session, query_input=query_input, query_params=params,
+            single_utterance=True, output_audio_config=self._output_audio_config)
         # Read in a stream till the end using a non-blocking get()
         while True:
             try:
@@ -373,14 +373,24 @@ class DialogflowClient(object):
         query_input = QueryInput(text=text_input)
         # Create QueryParameters
         params = self._create_query_parameters(msg.contexts)
-        response = self._session_cli.detect_intent(session=self._session,
-                                                   query_input=query_input,
-                                                   query_params=params)
-        # Store context for future use
-        self.last_contexts = response.query_result.output_contexts
-        df_msg = self._fill_ros_msg(response.query_result)
-        self._results_pub.publish(df_msg)
-        return df_msg
+        try:
+            response = self._session_cli.detect_intent(session=self._session,
+                                                       query_input=query_input,
+                                                       query_params=params,
+                                                       output_audio_config=self._output_audio_config)
+        except ServiceUnavailable:
+            rospy.logwarn("DF_CLIENT: 503 Deadline exceeded exception caught."
+                          "Maybe the response took too long or you aren't "
+                          "connected to the internet!")
+        else:
+            # Play audio
+            if self.PLAY_AUDIO:
+                self._play_stream(response.output_audio)
+            # Store context for future use
+            self.last_contexts = response.query_result.output_contexts
+            df_msg = self._fill_ros_msg(response.query_result)
+            self._results_pub.publish(df_msg)
+            return df_msg
 
     def detect_intent_stream(self):
         """Gets data from an audio generator (mic) and streams it to Dialogflow.
@@ -396,26 +406,27 @@ class DialogflowClient(object):
         except Cancelled as c:
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
                           "exception:\n{}".format(c))
-
-        if response is None:
-            rospy.logwarn("DF_CLIENT: No response received!")
-            return None
-        # The result from the last response is the final transcript along
-        # with the detected content.
-        final_resp = response.query_result
-        df_msg = self._fill_ros_msg(final_resp)
-        # Play audio
-        self._play_stream(response.output_audio)
-        # Pub
-        self._results_pub.publish(df_msg)
-        self.last_contexts = final_resp.output_contexts
-        return df_msg
+        else:
+            if response is None:
+                rospy.logwarn("DF_CLIENT: No response received!")
+                return None
+            # The result from the last response is the final transcript along
+            # with the detected content.
+            final_resp = response.query_result
+            df_msg = self._fill_ros_msg(final_resp)
+            # Play audio
+            if self.PLAY_AUDIO:
+                self._play_stream(response.output_audio)
+            # Pub
+            self._results_pub.publish(df_msg)
+            self.last_contexts = final_resp.output_contexts
+            return df_msg
 
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
-        self.detect_intent_stream()
-        # rospy.spin()
+        # self.detect_intent_stream()
+        rospy.spin()
 
     def exit(self):
         """Close as cleanly as possible"""
