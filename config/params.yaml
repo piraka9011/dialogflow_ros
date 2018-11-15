@@ -1,7 +1,7 @@
 results_topic: "/dialogflow_client/results"
 requests_topic: "/dialogflow_client/requests"
 project_id: "liquid-force-161121"
-analyze_sentiment: true
+play_audio: true
 use_audio_server: false
 server_name: "127.0.0.1"
 port: 4444
