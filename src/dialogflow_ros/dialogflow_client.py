@@ -144,7 +144,7 @@ class DialogflowClient(object):
         return result
 
     def _signal_handler(self, signal, frame):
-        rospy.logwarn("DF_CLIENT: SIGINT caught!")
+        rospy.logwarn("\nDF_CLIENT: SIGINT caught!")
         self.exit()
 
     # ----------------- #
@@ -152,13 +152,15 @@ class DialogflowClient(object):
     # ----------------- #
 
     def _connect(self):
-        """Creates a socket to listen for audio data from the server"""
+        """Creates a socket to listen for audio data from the server."""
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.connect((self._server_name, self._port))
-        rospy.loginfo("DF_CLIENT: Connected to socket")
         self._connected = True
 
     def _connect_audio_server(self):
+        """Makes 3 attempts at connecting to the audio server defined in the
+        parameters file.
+        """
         rospy.logdebug("DF_CLIENT: Using audio server.")
         # Retry 3 times to connect
         MAX_CONNECTION_RETRY = 3
@@ -173,6 +175,7 @@ class DialogflowClient(object):
             break
         # Yay :)
         if self._connected:
+            rospy.loginfo("DF_CLIENT: Connected to audio server.")
             self.data_thread.start()
         # Nay :c
         else:
@@ -183,6 +186,7 @@ class DialogflowClient(object):
             self.exit()
 
     def _connect_audio_mic(self):
+        """Creates a local PyAudio input stream from the microphone."""
         rospy.logdebug("DF_CLIENT: Using mic input.")
         self.stream_in = self.audio.open(format=self.FORMAT,
                                          channels=self.CHANNELS,
@@ -191,6 +195,7 @@ class DialogflowClient(object):
                                          stream_callback=self._get_audio_data)
 
     def _create_audio_output(self):
+        """Creates a PyAudio output stream."""
         rospy.logdebug("DF_CLIENT: Creating audio output...")
         self.stream_out = self.audio.open(format=pyaudio.paInt16, channels=1,
                                           rate=16000, output=True)
@@ -222,10 +227,12 @@ class DialogflowClient(object):
         return None, pyaudio.paContinue
 
     def _play_stream(self, data):
-        """Simple function to play a Ding sound."""
+        """Simple function to play a the output Dialogflow response.
+        :param data: Audio in bytes.
+        """
         self.stream_out.start_stream()
         self.stream_out.write(data)
-        time.sleep(0.2)
+        time.sleep(0.2)  # Wait for stream to finish
         self.stream_out.stop_stream()
 
     # -------------- #
