@@ -25,6 +25,7 @@ add_message_files(
   DialogflowResult.msg
   DialogflowContext.msg
   DialogflowParameter.msg
+  DialogflowRequest.msg
 )
 
 generate_messages(
@@ -63,7 +64,6 @@ include_directories(
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 install(PROGRAMS
-  scripts/dialogflow_client.py
   scripts/mic_client.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
