@@ -84,36 +84,3 @@ if __name__ == '__main__':
     rospy.init_node('hotword_client', log_level=rospy.DEBUG)
     hd = HotwordDialogflow()
     hd.start()
-
-# df_client = DialogflowClient()
-# interrupted = False
-#
-# def signal_handler(signal, frame):
-#     global interrupted
-#     interrupted = True
-#
-#
-# def interrupt_callback(self):
-#     global interrupted
-#     return interrupted
-#
-#
-# def df_callback():
-#     rospy.loginfo("HOTWORD_CLIENT: Hotword detected!")
-#     df_client.detect_intent_stream()
-#
-#
-#
-# rospy.init_node('hotword_client')
-#
-# # Setup snowboy
-# rpack = RosPack()
-# # UMDL or PMDL file paths along with audio files
-# pkg_path = rpack.get_path('dialogflow_ros')
-# model_path = pkg_path + '/scripts/snowboy/resources/jarvis.umdl'
-# ding_path = pkg_path + '/scripts/snowboy/resources/ding.wav'
-# detector = snowboydecoder.HotwordDetector(model_path,
-#                                           sensitivity=[0.5, 0.5])
-# detector.start(detected_callback=df_callback,
-#                interrupt_check=self._interrupt_callback,
-#                sleep_time=0.03)

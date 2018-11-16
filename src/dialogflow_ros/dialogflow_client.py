@@ -2,7 +2,7 @@
 
 # Dialogflow
 import dialogflow_v2beta1
-from dialogflow_v2beta1.types import Context, InputAudioConfig,\
+from dialogflow_v2beta1.types import Context, InputAudioConfig, \
     OutputAudioConfig, QueryInput, QueryParameters, \
     SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
 from dialogflow_v2beta1.gapic.enums import AudioEncoding, OutputAudioEncoding
@@ -34,7 +34,7 @@ class DialogflowClient(object):
         self.CHANNELS = 1
         self.RATE = 16000
         self.USE_AUDIO_SERVER = rospy.get_param(
-            '/dialogflow_client/use_audio_server', False)
+                '/dialogflow_client/use_audio_server', False)
         self.PLAY_AUDIO = rospy.get_param('/dialogflow_client/play_audio', True)
         self.DEBUG = rospy.get_param('/dialogflow_client/debug', False)
 
@@ -50,7 +50,7 @@ class DialogflowClient(object):
                 self.phrase_hints = load(f)
             except YAMLError:
                 rospy.logwarn(
-                    "DF_CLIENT: Unable to open phrase hints yaml file!")
+                        "DF_CLIENT: Unable to open phrase hints yaml file!")
                 self.phrase_hints = []
 
         # Dialogflow params
@@ -60,7 +60,7 @@ class DialogflowClient(object):
         self._language_code = language_code
         self.last_contexts = []
         self._sentiment_config = SentimentAnalysisRequestConfig(
-            analyze_query_text_sentiment=True)
+                analyze_query_text_sentiment=True)
         # DF Audio Setup
         audio_encoding = AudioEncoding.AUDIO_ENCODING_LINEAR_16
         # Possibel models: video, phone_call, command_and_search, default
@@ -71,7 +71,8 @@ class DialogflowClient(object):
                                               model='command_and_search')
 
         self._output_audio_config = OutputAudioConfig(
-                audio_encoding=OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16)
+                audio_encoding=OutputAudioEncoding.
+                    OUTPUT_AUDIO_ENCODING_LINEAR_16)
 
         # Create a session
         self._session_cli = dialogflow_v2beta1.SessionsClient()
@@ -136,9 +137,9 @@ class DialogflowClient(object):
             param_list = []
             for parameter in context.parameters:
                 param_list.append("{}: {}".format(
-                    parameter, context.parameters[parameter]))
+                        parameter, context.parameters[parameter]))
             temp_str = "Name: {}\nParameters: {}\n".format(
-                context.name.split('/')[-1], ", ".join(param_list))
+                    context.name.split('/')[-1], ", ".join(param_list))
             result.append(temp_str)
         result = "\n".join(result)
         return result
@@ -198,7 +199,7 @@ class DialogflowClient(object):
         """Creates a PyAudio output stream."""
         rospy.logdebug("DF_CLIENT: Creating audio output...")
         self.stream_out = self.audio.open(format=pyaudio.paInt16, channels=1,
-                                          rate=16000, output=True)
+                                          rate=24000, output=True)
 
     def _get_server_data(self):
         """Daemon thread that receives data from the audio socket and puts in a
@@ -250,8 +251,10 @@ class DialogflowClient(object):
         query_input = QueryInput(audio_config=self._audio_config)
         params = self._create_query_parameters()
         yield StreamingDetectIntentRequest(
-            session=self._session, query_input=query_input, query_params=params,
-            single_utterance=True, output_audio_config=self._output_audio_config)
+                session=self._session, query_input=query_input,
+                query_params=params,
+                single_utterance=True,
+                output_audio_config=self._output_audio_config)
         # Read in a stream till the end using a non-blocking get()
         while True:
             try:
@@ -282,14 +285,12 @@ class DialogflowClient(object):
         :return: A Dialogflow query parameters object.
         :rtype: QueryParameters
         """
-        # query_parameter = QueryParameters(
-        #     sentiment_analysis_request_config=self._sentiment_config)
         query_parameter = QueryParameters()
         # Create a context list is contexts are passed
         if contexts:
             rospy.logdebug(
-                "DF_CLIENT: Using the following contexts:\n{}".format(
-                    self._print_contexts(contexts)))
+                    "DF_CLIENT: Using the following contexts:\n{}".format(
+                            self._print_contexts(contexts)))
             context_list = []
             for context in contexts:
                 parameters = self._create_parameters(context.parameters)
@@ -348,7 +349,6 @@ class DialogflowClient(object):
                 "DF_CLIENT: Results:\n"
                 "Query Text: {}\n"
                 "Detected intent: {} (Confidence: {})\n"
-                # "Sentiment Score: {}\n"
                 "Contexts: {}\n"
                 "Fulfillment text: {}\n"
                 "Action: {}\n"
@@ -356,7 +356,6 @@ class DialogflowClient(object):
                         query_result.query_text,
                         query_result.intent.display_name,
                         query_result.intent_detection_confidence,
-                        # query_result.sentiment_analysis_result.query_text_sentiment.score,
                         self._print_contexts(query_result.output_contexts),
                         df_msg.fulfillment_text,
                         df_msg.action,
@@ -408,8 +407,8 @@ class DialogflowClient(object):
         try:
             for response in responses:
                 rospy.logdebug(
-                    'DF_CLIENT: Intermediate transcript: "{}".'.format(
-                        response.recognition_result.transcript))
+                        'DF_CLIENT: Intermediate transcript: "{}".'.format(
+                                response.recognition_result.transcript))
         except Cancelled as c:
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
                           "exception:\n{}".format(c))
@@ -432,8 +431,8 @@ class DialogflowClient(object):
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
-        # self.detect_intent_stream()
-        rospy.spin()
+        self.detect_intent_stream()
+        # rospy.spin()
 
     def exit(self):
         """Close as cleanly as possible"""
