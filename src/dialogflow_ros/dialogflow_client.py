@@ -2,11 +2,12 @@
 
 # Dialogflow
 import dialogflow_v2beta1
-from dialogflow_v2beta1.types import Context, InputAudioConfig, \
+from dialogflow_v2beta1.types import Context, EventInput, InputAudioConfig, \
     OutputAudioConfig, QueryInput, QueryParameters, \
     SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
 from dialogflow_v2beta1.gapic.enums import AudioEncoding, OutputAudioEncoding
 from google.api_core.exceptions import Cancelled, ServiceUnavailable
+from google.protobuf import struct_pb2
 # Use to convert Struct messages to JSON
 from google.protobuf.json_format import MessageToJson
 # Python
@@ -126,6 +127,17 @@ class DialogflowClient(object):
         """
         df_msg = self.detect_intent_text(msg)
         rospy.loginfo("DF_CLIENT: Request received:\n{}".format(df_msg))
+
+    # ================================== #
+    #           Setters/Getters          #
+    # ================================== #
+
+    def get_language_code(self):
+        return self._language_code
+
+    def set_language_code(self, language_code):
+        assert isinstance(language_code, str), "Language code must be a string!"
+        self._language_code = language_code
 
     # ==================================== #
     #           Utility Functions          #
@@ -272,7 +284,7 @@ class DialogflowClient(object):
         :return: Parameters as a dictionary
         :rtpe: dict
         """
-        params = {}
+        params = struct_pb2.Struct()
         for param in parameters:
             params[param.name] = param.value
         return params
@@ -427,6 +439,15 @@ class DialogflowClient(object):
             self._results_pub.publish(df_msg)
             self.last_contexts = final_resp.output_contexts
             return df_msg
+
+    def event_intent(self, event):
+        query_input = QueryInput(event=event)
+        response = self._session_cli.detect_intent(session=self._session,
+                                                   query_input=query_input,
+                                                   output_audio_config=self._output_audio_config)
+        if self.PLAY_AUDIO:
+            self._play_stream(response.output_audio)
+        return response
 
     def start(self):
         """Start the dialogflow client"""
