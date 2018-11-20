@@ -33,7 +33,7 @@ class HotwordDialogflow(object):
                 format=self.audio.get_format_from_width(ding.getsampwidth()),
                 channels=ding.getnchannels(), rate=ding.getframerate(),
                 input=False, output=True)
-
+        self.last_contexts = []
         rospy.loginfo("HOTWORD_CLIENT: Ready!")
 
     def _signal_handler(self, signal, frame):
@@ -53,8 +53,9 @@ class HotwordDialogflow(object):
     def _df_callback(self):
         rospy.loginfo("HOTWORD_CLIENT: Hotword detected!")
         self.play_ding()
-        self.df_client = DialogflowClient()
-        self.df_client.detect_intent_stream()
+        self.df_client = DialogflowClient(last_contexts=self.last_contexts)
+        df_msg = self.df_client.detect_intent_stream()
+        self.last_contexts = df_msg.contexts
 
     def start(self):
         # Register Ctrl-C sigint

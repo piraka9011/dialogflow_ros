@@ -26,6 +26,7 @@ add_message_files(
   DialogflowContext.msg
   DialogflowParameter.msg
   DialogflowRequest.msg
+  DialogflowEvent.msg
 )
 
 generate_messages(

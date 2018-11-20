@@ -7,9 +7,8 @@ from dialogflow_v2beta1.types import Context, EventInput, InputAudioConfig, \
     SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
 from dialogflow_v2beta1.gapic.enums import AudioEncoding, OutputAudioEncoding
 from google.api_core.exceptions import Cancelled, ServiceUnavailable
-from google.protobuf import struct_pb2
-# Use to convert Struct messages to JSON
-from google.protobuf.json_format import MessageToJson
+from utils import converters
+
 # Python
 import pyaudio
 import Queue
@@ -25,9 +24,12 @@ from rospkg import RosPack
 from std_msgs.msg import String
 from dialogflow_ros.msg import *
 
+# Use to convert Struct messages to JSON
+# from google.protobuf.json_format import MessageToJson
+
 
 class DialogflowClient(object):
-    def __init__(self, language_code='en-US'):
+    def __init__(self, language_code='en-US', last_contexts=None):
         """Initialize all params and load data"""
         """ Constants and params """
         self.CHUNK = 4096
@@ -59,7 +61,7 @@ class DialogflowClient(object):
                                      'my-project-id')
         session_id = str(uuid4())  # Random
         self._language_code = language_code
-        self.last_contexts = []
+        self.last_contexts = last_contexts
         self._sentiment_config = SentimentAnalysisRequestConfig(
                 analyze_query_text_sentiment=True)
         # DF Audio Setup
@@ -73,7 +75,8 @@ class DialogflowClient(object):
 
         self._output_audio_config = OutputAudioConfig(
                 audio_encoding=OutputAudioEncoding.
-                    OUTPUT_AUDIO_ENCODING_LINEAR_16)
+                    OUTPUT_AUDIO_ENCODING_LINEAR_16
+        )
 
         # Create a session
         self._session_cli = dialogflow_v2beta1.SessionsClient()
@@ -85,10 +88,19 @@ class DialogflowClient(object):
                                         '/dialogflow_client/results')
         requests_topic = rospy.get_param('/dialogflow_client/requests_topic',
                                          '/dialogflow_client/requests')
-        self._results_pub = rospy.Publisher(results_topic, DialogflowResult,
+        text_req_topic = requests_topic + '/string_msg'
+        text_event_topic = requests_topic + '/string_event'
+        msg_req_topic = requests_topic + '/df_msg'
+        event_req_topic = requests_topic + '/df_event'
+        self._results_pub = rospy.Publisher(results_topic,
+                                            DialogflowResult,
                                             queue_size=10)
-        self._request_sub = rospy.Subscriber(requests_topic, String,
-                                             self._request_cb)
+        rospy.Subscriber(text_req_topic, String, self._text_request_cb)
+        rospy.Subscriber(text_event_topic, String, self._text_event_cb)
+        rospy.Subscriber(msg_req_topic, DialogflowRequest, self._msg_request_cb)
+        rospy.Subscriber(event_req_topic, DialogflowEvent,
+                         self._event_request_cb)
+
 
         """ Audio setup """
         # Mic stream input setup
@@ -115,18 +127,42 @@ class DialogflowClient(object):
         if self.PLAY_AUDIO:
             self._create_audio_output()
 
+        rospy.logdebug("DF_CLIENT: Last Contexts: {}".format(
+                self.last_contexts))
         rospy.loginfo("DF_CLIENT: Ready!")
 
     # ========================================= #
     #           ROS Utility Functions           #
     # ========================================= #
 
-    def _request_cb(self, msg):
+    def _text_request_cb(self, msg):
+        """ROS Callback that sends text received from a topic to Dialogflow,
+        :param msg: A String message.
+        :type msg: String
+        """
+        new_msg = DialogflowRequest(query_text=msg.data)
+        df_msg = self.detect_intent_text(new_msg)
+        rospy.logdebug("DF_CLIENT: Request received:\n{}".format(df_msg))
+
+    def _msg_request_cb(self, msg):
         """ROS Callback that sends text received from a topic to Dialogflow,
         :param msg: A DialogflowRequest message.
+        :type msg: DialogflowRequest
         """
         df_msg = self.detect_intent_text(msg)
-        rospy.loginfo("DF_CLIENT: Request received:\n{}".format(df_msg))
+        rospy.logdebug("DF_CLIENT: Request received:\n{}".format(df_msg))
+
+    def _event_request_cb(self, msg):
+        """
+        :param msg: DialogflowEvent Message
+        :type msg: DialogflowEvent"""
+        new_event = converters.events_msg_to_struct(msg)
+        self.event_intent(new_event)
+
+    def _text_event_cb(self, msg):
+        new_event = EventInput(name=msg.data, language_code=self._language_code)
+        self.event_intent(new_event)
+
 
     # ================================== #
     #           Setters/Getters          #
@@ -142,19 +178,6 @@ class DialogflowClient(object):
     # ==================================== #
     #           Utility Functions          #
     # ==================================== #
-
-    def _print_contexts(self, contexts):
-        result = []
-        for context in contexts:
-            param_list = []
-            for parameter in context.parameters:
-                param_list.append("{}: {}".format(
-                        parameter, context.parameters[parameter]))
-            temp_str = "Name: {}\nParameters: {}\n".format(
-                    context.name.split('/')[-1], ", ".join(param_list))
-            result.append(temp_str)
-        result = "\n".join(result)
-        return result
 
     def _signal_handler(self, signal, frame):
         rospy.logwarn("\nDF_CLIENT: SIGINT caught!")
@@ -261,12 +284,15 @@ class DialogflowClient(object):
         """
         # First message contains session, query_input, and params
         query_input = QueryInput(audio_config=self._audio_config)
-        params = self._create_query_parameters()
+        params = converters.create_query_parameters(
+                last_contexts=self.last_contexts
+        )
         yield StreamingDetectIntentRequest(
                 session=self._session, query_input=query_input,
                 query_params=params,
                 single_utterance=True,
-                output_audio_config=self._output_audio_config)
+                output_audio_config=self._output_audio_config
+        )
         # Read in a stream till the end using a non-blocking get()
         while True:
             try:
@@ -276,103 +302,6 @@ class DialogflowClient(object):
                 yield StreamingDetectIntentRequest(input_audio=chunk)
             except Queue.Empty:
                 rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
-
-    def _create_parameters(self, parameters):
-        """Create a DF compatible parameter dictionary
-        :param parameters: DialogflowParameter message
-        :type parameters: list(DialogflowParameter)
-        :return: Parameters as a dictionary
-        :rtpe: dict
-        """
-        params = struct_pb2.Struct()
-        for param in parameters:
-            params[param.name] = param.value
-        return params
-
-    def _create_query_parameters(self, contexts=None):
-        """Creates a QueryParameter with contexts. Last contexts used if
-        contexts is empty. No contexts if none found.
-        :param contexts: The ROS DialogflowContext message
-        :type contexts: list(DialogflowContext)
-        :return: A Dialogflow query parameters object.
-        :rtype: QueryParameters
-        """
-        query_parameter = QueryParameters()
-        # Create a context list is contexts are passed
-        if contexts:
-            rospy.logdebug(
-                    "DF_CLIENT: Using the following contexts:\n{}".format(
-                            self._print_contexts(contexts)))
-            context_list = []
-            for context in contexts:
-                parameters = self._create_parameters(context.parameters)
-                new_context = Context(name=context.name,
-                                      lifespan_count=context.lifespan_count,
-                                      parameters=parameters)
-                context_list.append(new_context)
-            query_parameter.context = context_list
-            return query_parameter
-        # User previously received contexts or none
-        else:
-            rospy.logwarn("DF_CLIENT: No contexts found! "
-                          "Checking for previous contexts...")
-            if self.last_contexts:
-                query_parameter.context = self.last_contexts
-                return query_parameter
-            else:
-                rospy.logwarn("DF_CLIENT: No previous contexts! "
-                              "QueryParameters is empty.")
-                return query_parameter
-
-    def _fill_context(self, context):
-        """Utility function that fills the context received from Dialogflow into
-        the ROS msg.
-        :param context: The output_context received from Dialogflow.
-        :type context: Context
-        :return: The ROS DialogflowContext msg.
-        :rtype: DialogflowContext
-        """
-        df_context = DialogflowContext()
-        df_context.name = context.name
-        df_context.lifespan_count = context.lifespan_count
-        df_context.parameters = [DialogflowParameter(name=name, value=value)
-                                 for name, value in context.parameters.items()]
-        return df_context
-
-    def _fill_ros_msg(self, query_result):
-        """Utility function that fills the result received from Dialogflow into
-        the ROS msg.
-        :param query_result: The query_result received from Dialogflow.
-        :type query_result: QueryResult
-        :return: The ROS DialogflowResult msg.
-        :rtype: DialogflowResult
-        """
-        df_msg = DialogflowResult()
-        df_msg.fulfillment_text = str(query_result.fulfillment_text)
-        df_msg.query_text = str(query_result.query_text)
-        df_msg.action = str(query_result.action)
-        df_msg.parameters = [
-            DialogflowParameter(name=str(name), value=str(value))
-            for name, value in query_result.parameters.items()]
-        df_msg.contexts = [self._fill_context(context) for context in
-                           query_result.output_contexts]
-        df_msg.intent = query_result.intent.display_name
-        rospy.loginfo(
-                "DF_CLIENT: Results:\n"
-                "Query Text: {}\n"
-                "Detected intent: {} (Confidence: {})\n"
-                "Contexts: {}\n"
-                "Fulfillment text: {}\n"
-                "Action: {}\n"
-                "Parameters: {}".format(
-                        query_result.query_text,
-                        query_result.intent.display_name,
-                        query_result.intent_detection_confidence,
-                        self._print_contexts(query_result.output_contexts),
-                        df_msg.fulfillment_text,
-                        df_msg.action,
-                        query_result.parameters))
-        return df_msg
 
     # ======================================== #
     #           Dialogflow Functions           #
@@ -390,12 +319,16 @@ class DialogflowClient(object):
                                language_code=self._language_code)
         query_input = QueryInput(text=text_input)
         # Create QueryParameters
-        params = self._create_query_parameters(msg.contexts)
+        params = converters.create_query_parameters(
+                msg.contexts, last_contexts=self.last_contexts
+        )
         try:
-            response = self._session_cli.detect_intent(session=self._session,
-                                                       query_input=query_input,
-                                                       query_params=params,
-                                                       output_audio_config=self._output_audio_config)
+            response = self._session_cli.detect_intent(
+                    session=self._session,
+                    query_input=query_input,
+                    query_params=params,
+                    output_audio_config=self._output_audio_config
+            )
         except ServiceUnavailable:
             rospy.logwarn("DF_CLIENT: 503 Deadline exceeded exception caught."
                           "Maybe the response took too long or you aren't "
@@ -406,7 +339,7 @@ class DialogflowClient(object):
                 self._play_stream(response.output_audio)
             # Store context for future use
             self.last_contexts = response.query_result.output_contexts
-            df_msg = self._fill_ros_msg(response.query_result)
+            df_msg = converters.result_struct_to_msg(response.query_result)
             self._results_pub.publish(df_msg)
             return df_msg
 
@@ -430,30 +363,37 @@ class DialogflowClient(object):
                 return None
             # The result from the last response is the final transcript along
             # with the detected content.
-            final_resp = response.query_result
-            df_msg = self._fill_ros_msg(final_resp)
+            final_response = response.query_result
+            print("{}".format(response.query_result.query_text))
+            df_msg = converters.result_struct_to_msg(final_response)
             # Play audio
             if self.PLAY_AUDIO:
                 self._play_stream(response.output_audio)
             # Pub
             self._results_pub.publish(df_msg)
-            self.last_contexts = final_resp.output_contexts
+            self.last_contexts = final_response.output_contexts
             return df_msg
 
     def event_intent(self, event):
         query_input = QueryInput(event=event)
-        response = self._session_cli.detect_intent(session=self._session,
-                                                   query_input=query_input,
-                                                   output_audio_config=self._output_audio_config)
+        params = converters.create_query_parameters(
+                last_contexts=self.last_contexts
+        )
+        response = self._session_cli.detect_intent(
+                session=self._session,
+                query_input=query_input,
+                query_params=params,
+                output_audio_config=self._output_audio_config
+        )
+        df_msg = converters.result_struct_to_msg(response)
         if self.PLAY_AUDIO:
             self._play_stream(response.output_audio)
-        return response
+        return df_msg
 
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
-        self.detect_intent_stream()
-        # rospy.spin()
+        rospy.spin()
 
     def exit(self):
         """Close as cleanly as possible"""
