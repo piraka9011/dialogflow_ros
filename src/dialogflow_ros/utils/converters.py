@@ -23,8 +23,8 @@ def contexts_struct_to_msg(contexts):
     context_list = []
     for context in contexts:
         df_context = DialogflowContext()
-        df_context.name = context.name
-        df_context.lifespan_count = context.lifespan_count
+        df_context.name = str(context.name)
+        df_context.lifespan_count = int(context.lifespan_count)
         df_context.parameters = [
             DialogflowParameter(name=str(name), value=str(value))
             for name, value in context.parameters.items()]
