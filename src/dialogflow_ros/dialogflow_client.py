@@ -163,7 +163,6 @@ class DialogflowClient(object):
         new_event = EventInput(name=msg.data, language_code=self._language_code)
         self.event_intent(new_event)
 
-
     # ================================== #
     #           Setters/Getters          #
     # ================================== #
