@@ -9,10 +9,12 @@ from output import print_context_parameters, print_result
 
 def parameters_struct_to_msg(parameters):
     if parameters.items():
-        return [DialogflowParameter(name=str(name), value=str(value))
+        rospy.loginfo("GOT PARAMETERS")
+        return [DialogflowParameter(param_name=str(name), value=str(value))
                 for name, value in parameters.items()]
     else:
-        return [DialogflowParameter()]
+        rospy.loginfo("EMPTY PARAMETERS")
+        return []
 
 
 def events_msg_to_struct(event, language_code='en-US'):
@@ -34,7 +36,7 @@ def contexts_struct_to_msg(contexts):
         df_context_msg.name = str(context.name)
         df_context_msg.lifespan_count = int(context.lifespan_count)
         df_context_msg.parameters = parameters_struct_to_msg(context.parameters)
-        context_list.append(context)
+        context_list.append(df_context_msg)
     return context_list
 
 
