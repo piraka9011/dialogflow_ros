@@ -4,7 +4,15 @@ from dialogflow_v2beta1.types import Context, EventInput, InputAudioConfig, \
     OutputAudioConfig, QueryInput, QueryParameters, \
     SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
 from dialogflow_ros.msg import *
-from output import print_contexts, print_result
+from output import print_context_parameters, print_result
+
+
+def parameters_struct_to_msg(parameters):
+    if parameters.items():
+        return [DialogflowParameter(name=str(name), value=str(value))
+                for name, value in parameters.items()]
+    else:
+        return [DialogflowParameter()]
 
 
 def events_msg_to_struct(event, language_code='en-US'):
@@ -22,12 +30,10 @@ def contexts_struct_to_msg(contexts):
     """
     context_list = []
     for context in contexts:
-        df_context = DialogflowContext()
-        df_context.name = str(context.name)
-        df_context.lifespan_count = int(context.lifespan_count)
-        df_context.parameters = [
-            DialogflowParameter(name=str(name), value=str(value))
-            for name, value in context.parameters.items()]
+        df_context_msg = DialogflowContext()
+        df_context_msg.name = str(context.name)
+        df_context_msg.lifespan_count = int(context.lifespan_count)
+        df_context_msg.parameters = parameters_struct_to_msg(context.parameters)
         context_list.append(context)
     return context_list
 
@@ -76,7 +82,7 @@ def create_query_parameters(contexts=None, last_contexts=None):
     # Create a context list is contexts are passed
     if contexts:
         rospy.logdebug("DF_CLIENT: Using the following contexts:\n{}".format(
-                        print_contexts(contexts)))
+                        print_context_parameters(contexts)))
         contexts = contexts_msg_to_struct(contexts)
         return QueryParameters(contexts=contexts)
     # User previously received contexts or none
@@ -100,14 +106,16 @@ def result_struct_to_msg(query_result):
         :return: The ROS DialogflowResult msg.
         :rtype: DialogflowResult
         """
-        df_msg = DialogflowResult()
-        df_msg.fulfillment_text = str(query_result.fulfillment_text)
-        df_msg.query_text = str(query_result.query_text)
-        df_msg.action = str(query_result.action)
-        df_msg.parameters = [
-            DialogflowParameter(name=str(name), value=str(value))
-            for name, value in query_result.parameters.items()]
-        df_msg.contexts = contexts_struct_to_msg(query_result.output_contexts)
-        df_msg.intent = query_result.intent.display_name
+        df_result_msg = DialogflowResult()
+        df_result_msg.fulfillment_text = str(query_result.fulfillment_text)
+        df_result_msg.query_text = str(query_result.query_text)
+        df_result_msg.action = str(query_result.action)
+        df_result_msg.parameters = parameters_struct_to_msg(
+                query_result.parameters
+        )
+        df_result_msg.contexts = contexts_struct_to_msg(
+                query_result.output_contexts
+        )
+        df_result_msg.intent = str(query_result.intent.display_name)
         rospy.loginfo(print_result(query_result))
-        return df_msg
+        return df_result_msg

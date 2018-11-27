@@ -101,7 +101,6 @@ class DialogflowClient(object):
         rospy.Subscriber(event_req_topic, DialogflowEvent,
                          self._event_request_cb)
 
-
         """ Audio setup """
         # Mic stream input setup
         self._buff = Queue.Queue()  # Buffer to hold audio data
@@ -140,9 +139,9 @@ class DialogflowClient(object):
         :param msg: A String message.
         :type msg: String
         """
+        rospy.logdebug("DF_CLIENT: Request received")
         new_msg = DialogflowRequest(query_text=msg.data)
         df_msg = self.detect_intent_text(new_msg)
-        rospy.logdebug("DF_CLIENT: Request received:\n{}".format(df_msg))
 
     def _msg_request_cb(self, msg):
         """ROS Callback that sends text received from a topic to Dialogflow,
