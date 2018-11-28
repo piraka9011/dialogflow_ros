@@ -8,12 +8,15 @@ from output import print_context_parameters, print_result
 
 
 def parameters_struct_to_msg(parameters):
+    """
+
+    :param parameters:
+    :return:
+    """
     if parameters.items():
-        rospy.loginfo("GOT PARAMETERS")
         return [DialogflowParameter(param_name=str(name), value=str(value))
                 for name, value in parameters.items()]
     else:
-        rospy.loginfo("EMPTY PARAMETERS")
         return []
 
 
@@ -119,5 +122,4 @@ def result_struct_to_msg(query_result):
                 query_result.output_contexts
         )
         df_result_msg.intent = str(query_result.intent.display_name)
-        rospy.loginfo(print_result(query_result))
         return df_result_msg
