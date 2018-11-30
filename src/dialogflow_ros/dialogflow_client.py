@@ -294,14 +294,20 @@ class DialogflowClient(object):
         )
         # Read in a stream till the end using a non-blocking get()
         while True:
+            chunk = self._buff.get()
+            if chunk is None:
+                break
+            data = [chunk]
             try:
                 chunk = self._buff.get(block=False)
-                if chunk is None:
+                if not chunk:
                     break
-                yield StreamingDetectIntentRequest(input_audio=chunk)
+                data.append(chunk)
             except Queue.Empty:
                 rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
 
+            input_audio = b''.join(data)
+            yield StreamingDetectIntentRequest(input_audio=input_audio)
     # ======================================== #
     #           Dialogflow Functions           #
     # ======================================== #
@@ -360,6 +366,9 @@ class DialogflowClient(object):
         except Cancelled as c:
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
                           "exception:\n{}".format(c))
+        except Unknown as u:
+            rospy.logwarn("DF_CLIENT: Caught a Google API Client unknown "
+                          "exception:\n{}".format(u))
         else:
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")

@@ -92,10 +92,10 @@ def create_query_parameters(contexts=None, last_contexts=None):
         return QueryParameters(contexts=contexts)
     # User previously received contexts or none
     else:
-        rospy.logwarn("DF_CLIENT: No contexts found! "
-                      "Checking for previous contexts...")
         if last_contexts is not None:
-            contexts = last_contexts
+            rospy.logdebug("DF_CLIENT: Using previous contexts:\n{}".format(
+                    last_contexts))
+            contexts = contexts_msg_to_struct(last_contexts)
             return QueryParameters(contexts=contexts)
         else:
             rospy.logwarn("DF_CLIENT: No previous contexts! "
