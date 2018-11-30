@@ -74,13 +74,11 @@ def params_msg_to_struct(parameters):
     return google_struct
 
 
-def create_query_parameters(contexts=None, last_contexts=None):
+def create_query_parameters(contexts=None):
     """Creates a QueryParameter with contexts. Last contexts used if
     contexts is empty. No contexts if none found.
     :param contexts: The ROS DialogflowContext message
     :type contexts: list(DialogflowContext)
-    :param last_contexts: List of previous contexts (if any).
-    :type last_contexts: list(Context)
     :return: A Dialogflow query parameters object.
     :rtype: QueryParameters
     """
@@ -90,17 +88,6 @@ def create_query_parameters(contexts=None, last_contexts=None):
                         print_context_parameters(contexts)))
         contexts = contexts_msg_to_struct(contexts)
         return QueryParameters(contexts=contexts)
-    # User previously received contexts or none
-    else:
-        if last_contexts is not None:
-            rospy.logdebug("DF_CLIENT: Using previous contexts:\n{}".format(
-                    last_contexts))
-            contexts = contexts_msg_to_struct(last_contexts)
-            return QueryParameters(contexts=contexts)
-        else:
-            rospy.logwarn("DF_CLIENT: No previous contexts! "
-                          "QueryParameters is empty.")
-            return QueryParameters()
 
 
 def result_struct_to_msg(query_result):

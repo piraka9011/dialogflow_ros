@@ -4,17 +4,16 @@
 import dialogflow_v2beta1
 from dialogflow_v2beta1.types import Context, EventInput, InputAudioConfig, \
     OutputAudioConfig, QueryInput, QueryParameters, \
-    SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
+    StreamingDetectIntentRequest, TextInput
 from dialogflow_v2beta1.gapic.enums import AudioEncoding, OutputAudioEncoding
 from google.api_core.exceptions import Cancelled, ServiceUnavailable, Unknown
 import utils
+from AudioServerStream import AudioServerStream
+from MicrophoneStream import MicrophoneStream
 
 # Python
 import pyaudio
-import Queue
 import signal
-import socket
-from threading import Thread
 import time
 from uuid import uuid4
 from yaml import load, YAMLError
@@ -52,8 +51,8 @@ class DialogflowClient(object):
             try:
                 self.phrase_hints = load(f)
             except YAMLError:
-                rospy.logwarn(
-                        "DF_CLIENT: Unable to open phrase hints yaml file!")
+                rospy.logwarn("DF_CLIENT: Unable to open phrase hints yaml "
+                              "file!")
                 self.phrase_hints = []
 
         # Dialogflow params
@@ -61,9 +60,7 @@ class DialogflowClient(object):
                                      'my-project-id')
         session_id = str(uuid4())  # Random
         self._language_code = language_code
-        self.last_contexts = last_contexts
-        self._sentiment_config = SentimentAnalysisRequestConfig(
-                analyze_query_text_sentiment=True)
+        self.last_contexts = last_contexts if last_contexts else []
         # DF Audio Setup
         audio_encoding = AudioEncoding.AUDIO_ENCODING_LINEAR_16
         # Possibel models: video, phone_call, command_and_search, default
@@ -103,25 +100,10 @@ class DialogflowClient(object):
 
         """ Audio setup """
         # Mic stream input setup
-        self._buff = Queue.Queue()  # Buffer to hold audio data
-        self._closed = False
         self.audio = pyaudio.PyAudio()
-        # Audio data thread to get data from server
-        self.data_thread = Thread(target=self._get_server_data)
-        self.data_thread.daemon = True
-        # Socket for connection
-        self.s = None
-        self._connected = False
         self._server_name = rospy.get_param('/dialogflow_client/server_name',
                                             '127.0.0.1')
         self._port = rospy.get_param('/dialogflow_client/port', 4444)
-
-        # If we are using the audio server then we need to setup our audio
-        # collection differently
-        if self.USE_AUDIO_SERVER:
-            self._connect_audio_server()
-        else:
-            self._connect_audio_mic()
 
         if self.PLAY_AUDIO:
             self._create_audio_output()
@@ -185,80 +167,13 @@ class DialogflowClient(object):
     #  Audio Utilities  #
     # ----------------- #
 
-    def _connect(self):
-        """Creates a socket to listen for audio data from the server."""
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.s.connect((self._server_name, self._port))
-        self._connected = True
-
-    def _connect_audio_server(self):
-        """Makes 3 attempts at connecting to the audio server defined in the
-        parameters file.
-        """
-        rospy.logdebug("DF_CLIENT: Using audio server.")
-        # Retry 3 times to connect
-        MAX_CONNECTION_RETRY = 3
-        for _ in range(0, MAX_CONNECTION_RETRY):
-            try:
-                self._connect()
-            except socket.error as e:
-                rospy.logwarn("DF_CLIENT: Socket exception caught!\n"
-                              "{}\nRetrying...".format(e))
-                rospy.sleep(1)
-                continue
-            break
-        # Yay :)
-        if self._connected:
-            rospy.loginfo("DF_CLIENT: Connected to audio server.")
-            self.data_thread.start()
-        # Nay :c
-        else:
-            rospy.logerr("DF_CLIENT: Unable to connect to audio server! "
-                         "Make sure it is running and you are connected on "
-                         "the same network.")
-            rospy.signal_shutdown("Unable to connect to audio server.")
-            self.exit()
-
-    def _connect_audio_mic(self):
-        """Creates a local PyAudio input stream from the microphone."""
-        rospy.logdebug("DF_CLIENT: Using mic input.")
-        self.stream_in = self.audio.open(format=self.FORMAT,
-                                         channels=self.CHANNELS,
-                                         rate=self.RATE, input=True,
-                                         frames_per_buffer=self.CHUNK,
-                                         stream_callback=self._get_audio_data)
-
     def _create_audio_output(self):
         """Creates a PyAudio output stream."""
         rospy.logdebug("DF_CLIENT: Creating audio output...")
-        self.stream_out = self.audio.open(format=pyaudio.paInt16, channels=1,
-                                          rate=24000, output=True)
-
-    def _get_server_data(self):
-        """Daemon thread that receives data from the audio socket and puts in a
-        buffer. Works just like _get_audio_data but data comes from server,
-        not mic.
-        """
-        try:
-            while True:
-                data = self.s.recv(self.CHUNK)
-                self._buff.put(data)
-        except KeyboardInterrupt as e:
-            rospy.logwarn("DF_CLIENT: Shutdown from thread: {}".format(e))
-            self.exit()
-
-    def _get_audio_data(self, in_data, frame_count, time_info, status):
-        """PyAudio callback to continuously get audio data from the mic and put
-        it in a buffer.
-         :param in_data: Audio data received from mic.
-         :return: A tuple with a signal to keep listening to audio input device
-         :rtype: tuple(None, int)
-        """
-        self._buff.put(in_data)
-        # Play audio
-        if self.DEBUG:
-            self.stream_in.write(in_data)
-        return None, pyaudio.paContinue
+        self.stream_out = self.audio.open(format=pyaudio.paInt16,
+                                          channels=1,
+                                          rate=24000,
+                                          output=True)
 
     def _play_stream(self, data):
         """Simple function to play a the output Dialogflow response.
@@ -282,32 +197,29 @@ class DialogflowClient(object):
         """
         # First message contains session, query_input, and params
         query_input = QueryInput(audio_config=self._audio_config)
-        params = utils.converters.create_query_parameters(
-                last_contexts=self.last_contexts
-        )
-        yield StreamingDetectIntentRequest(
+        contexts = utils.converters.contexts_msg_to_struct(self.last_contexts)
+        params = QueryParameters(contexts=contexts)
+        rospy.loginfo(params)
+        req = StreamingDetectIntentRequest(
                 session=self._session,
                 query_input=query_input,
                 query_params=params,
                 single_utterance=True,
                 output_audio_config=self._output_audio_config
         )
-        # Read in a stream till the end using a non-blocking get()
-        while True:
-            chunk = self._buff.get()
-            if chunk is None:
-                break
-            data = [chunk]
-            try:
-                chunk = self._buff.get(block=False)
-                if not chunk:
-                    break
-                data.append(chunk)
-            except Queue.Empty:
-                rospy.logwarn_throttle(10, "DF_CLIENT: Audio queue is empty!")
+        yield req
 
-            input_audio = b''.join(data)
-            yield StreamingDetectIntentRequest(input_audio=input_audio)
+        if self.USE_AUDIO_SERVER:
+            with AudioServerStream() as stream:
+                audio_generator = stream.generator()
+                for content in audio_generator:
+                    yield StreamingDetectIntentRequest(input_audio=content)
+        else:
+            with MicrophoneStream() as stream:
+                audio_generator = stream.generator()
+                for content in audio_generator:
+                    yield StreamingDetectIntentRequest(input_audio=content)
+
     # ======================================== #
     #           Dialogflow Functions           #
     # ======================================== #
@@ -324,9 +236,10 @@ class DialogflowClient(object):
                                language_code=self._language_code)
         query_input = QueryInput(text=text_input)
         # Create QueryParameters
-        params = utils.converters.create_query_parameters(
-                msg.contexts, last_contexts=self.last_contexts
-        )
+        user_contexts = utils.converters.contexts_msg_to_struct(msg.contexts)
+        self.last_contexts = utils.converters.contexts_msg_to_struct(self.last_contexts)
+        contexts = self.last_contexts + user_contexts
+        params = QueryParameters(contexts=contexts)
         try:
             response = self._session_cli.detect_intent(
                     session=self._session,
@@ -340,7 +253,9 @@ class DialogflowClient(object):
                           "connected to the internet!")
         else:
             # Store context for future use
-            self.last_contexts = response.query_result.output_contexts
+            self.last_contexts = utils.converters.contexts_struct_to_msg(
+                    response.query_result.output_contexts
+            )
             df_msg = utils.converters.result_struct_to_msg(
                     response.query_result)
             rospy.loginfo(utils.output.print_result(response.query_result))
@@ -350,9 +265,10 @@ class DialogflowClient(object):
             self._results_pub.publish(df_msg)
             return df_msg
 
-    def detect_intent_stream(self):
+    def detect_intent_stream(self, return_result=False):
         """Gets data from an audio generator (mic) and streams it to Dialogflow.
         We use a stream for VAD and single utterance detection."""
+
         # Generator yields audio chunks.
         requests = self._generator()
         responses = self._session_cli.streaming_detect_intent(requests)
@@ -367,8 +283,8 @@ class DialogflowClient(object):
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
                           "exception:\n{}".format(c))
         except Unknown as u:
-            rospy.logwarn("DF_CLIENT: Caught a Google API Client unknown "
-                          "exception:\n{}".format(u))
+            rospy.logwarn("DF_CLIENT: Unknown Exception Caught:\nRequests: {}\nResponses: "
+                          "{}\n". format(requests, responses))
         else:
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")
@@ -379,7 +295,9 @@ class DialogflowClient(object):
             # 3. The output audio with config
             final_result = resp_list[-2].query_result
             final_audio = resp_list[-1]
-            self.last_contexts = final_result.output_contexts
+            self.last_contexts = utils.converters.contexts_struct_to_msg(
+                    final_result.output_contexts
+            )
             df_msg = utils.converters.result_struct_to_msg(final_result)
             rospy.loginfo(utils.output.print_result(final_result))
             # Play audio
@@ -387,12 +305,13 @@ class DialogflowClient(object):
                 self._play_stream(final_audio.output_audio)
             # Pub
             self._results_pub.publish(df_msg)
+            if return_result: return df_msg, final_result
             return df_msg
 
     def event_intent(self, event):
         query_input = QueryInput(event=event)
         params = utils.converters.create_query_parameters(
-                last_contexts=self.last_contexts
+                contexts=self.last_contexts
         )
         response = self._session_cli.detect_intent(
                 session=self._session,
@@ -413,9 +332,6 @@ class DialogflowClient(object):
     def exit(self):
         """Close as cleanly as possible"""
         rospy.loginfo("DF_CLIENT: Shutting down")
-        self._closed = True
-        self._buff.put(None)
-        self.stream_in.close()
         self.audio.terminate()
         exit()
 
@@ -425,3 +341,4 @@ if __name__ == '__main__':
     # rospy.init_node('dialogflow_client')
     df = DialogflowClient()
     df.start()
+    # df.detect_intent_stream()

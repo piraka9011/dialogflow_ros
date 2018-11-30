@@ -19,19 +19,22 @@ class AudioServer:
         self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.read_list = [self.serversocket]
 
-        self._server_name = rospy.get_param('/dialogflow_client/server_name', '127.0.0.1')
+        self._server_name = rospy.get_param('/dialogflow_client/server_name',
+                                            '127.0.0.1')
         self._port = rospy.get_param('/dialogflow_client/port', 4444)
 
         rospy.loginfo("DF_CLIENT: Audio Server Started!")
 
     def _connect(self):
-        """Create a socket, listen on the server:port and wait for a connection."""
+        """Create a socket, listen on the server:port and wait for a connection.
+        """
         self.serversocket.bind((self._server_name, self._port))
         rospy.loginfo("DF_CLIENT: Waiting for connection...")
         self.serversocket.listen(1)
 
     def _callback(self, in_data, frame_count, time_info, status):
-        """PyAudio callback to continuously get audio data from the mic and put it in a buffer.
+        """PyAudio callback to continuously get audio data from the mic and put
+        it in a buffer.
          :param in_data: Audio data received from mic.
          :return: A tuple with a signal to keep listening to audio input device
          :rtype: tuple(None, int)
@@ -41,18 +44,21 @@ class AudioServer:
         return None, pyaudio.paContinue
 
     def start(self):
-        """Main function that attempts to create a socket and establish a connection with a client."""
+        """Main function that attempts to create a socket and establish a
+        connection with a client."""
         self._connect()
         try:
             while True:
                 # select() waits until an object is readable. Here this means
-                # that it will wait until there is data to be read from the socket
-                readable, writable, errored = select.select(self.read_list, [], [])
+                # it will wait until there is data to be read from the socket
+                readable, writable, errored = select.select(self.read_list,
+                                                            [], [])
                 for s in readable:
                     if s is self.serversocket:
                         (clientsocket, address) = self.serversocket.accept()
                         self.read_list.append(clientsocket)
-                        rospy.loginfo("DF_CLIENT: Connection from {}".format(address))
+                        rospy.loginfo("DF_CLIENT: Connection from {}".format(
+                                address))
                     else:
                         data = s.recv(1024)
                         if not data:
@@ -60,7 +66,8 @@ class AudioServer:
         except KeyboardInterrupt as k:
             rospy.logwarn("DF_CLIENT: Caught Keyboard Interrupt: {}".format(k))
         except socket.error as e:
-            rospy.logwarn("DF_CLIENT: Caught Socket Error: {}\n Restarting...".format(e))
+            rospy.logwarn("DF_CLIENT: Caught Socket Error: {}\n "
+                          "Restarting...".format(e))
             self._connect()
 
         rospy.loginfo("DF_CLIENT: Finished recording")
