@@ -1,2 +1,2 @@
-string name
+string param_name
 string value
