@@ -33,7 +33,7 @@ class HotwordDialogflow(object):
                 format=self.audio.get_format_from_width(ding.getsampwidth()),
                 channels=ding.getnchannels(), rate=ding.getframerate(),
                 input=False, output=True)
-
+        self.last_contexts = []
         rospy.loginfo("HOTWORD_CLIENT: Ready!")
 
     def _signal_handler(self, signal, frame):
@@ -53,8 +53,9 @@ class HotwordDialogflow(object):
     def _df_callback(self):
         rospy.loginfo("HOTWORD_CLIENT: Hotword detected!")
         self.play_ding()
-        self.df_client = DialogflowClient()
-        self.df_client.detect_intent_stream()
+        # self.df_client = DialogflowClient(last_contexts=self.last_contexts)
+        df_msg, res = self.df_client.detect_intent_stream(return_result=True)
+        self.last_contexts = res.output_contexts
 
     def start(self):
         # Register Ctrl-C sigint
@@ -62,6 +63,7 @@ class HotwordDialogflow(object):
         # Setup snowboy
         self.detector = snowboydecoder.HotwordDetector(self.model_path,
                                                        sensitivity=[0.5, 0.5])
+        self.df_client = DialogflowClient()
         rospy.loginfo("HOTWORD_CLIENT: Listening... Press Ctrl-C to stop.")
         while True:
             try:
