@@ -1,0 +1,4 @@
+<launch>
+    <rosparam command="load" file="$(find dialogflow_ros)/config/params.yaml" ns="/dialogflow_client"/>
+    <node name="hotword_dialogflow" pkg="dialogflow_ros" type="hotword_dialogflow.py" output="screen"/>
+</launch>
