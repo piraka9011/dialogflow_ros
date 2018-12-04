@@ -6,7 +6,7 @@ from dialogflow_v2beta1.types import Context, EventInput, InputAudioConfig, \
     OutputAudioConfig, QueryInput, QueryParameters, \
     StreamingDetectIntentRequest, TextInput
 from dialogflow_v2beta1.gapic.enums import AudioEncoding, OutputAudioEncoding
-from google.api_core.exceptions import Cancelled, ServiceUnavailable, Unknown
+import google.api_core.exceptions
 import utils
 from AudioServerStream import AudioServerStream
 from MicrophoneStream import MicrophoneStream
@@ -19,7 +19,7 @@ from uuid import uuid4
 from yaml import load, YAMLError
 # ROS
 import rospy
-from rospkg import RosPack
+import rospkg
 from std_msgs.msg import String
 from dialogflow_ros.msg import *
 
@@ -35,8 +35,7 @@ class DialogflowClient(object):
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
         self.RATE = 16000
-        self.USE_AUDIO_SERVER = rospy.get_param(
-                '/dialogflow_client/use_audio_server', False)
+        self.USE_AUDIO_SERVER = rospy.get_param('/dialogflow_client/use_audio_server', False)
         self.PLAY_AUDIO = rospy.get_param('/dialogflow_client/play_audio', True)
         self.DEBUG = rospy.get_param('/dialogflow_client/debug', False)
 
@@ -45,19 +44,17 @@ class DialogflowClient(object):
 
         """ Dialogflow setup """
         # Get hints/clues
-        rp = RosPack()
+        rp = rospkg.RosPack()
         file_dir = rp.get_path('dialogflow_ros') + '/config/context.yaml'
         with open(file_dir, 'r') as f:
             try:
                 self.phrase_hints = load(f)
             except YAMLError:
-                rospy.logwarn("DF_CLIENT: Unable to open phrase hints yaml "
-                              "file!")
+                rospy.logwarn("DF_CLIENT: Unable to open phrase hints yaml file!")
                 self.phrase_hints = []
 
         # Dialogflow params
-        project_id = rospy.get_param('/dialogflow_client/project_id',
-                                     'my-project-id')
+        project_id = rospy.get_param('/dialogflow_client/project_id', 'my-project-id')
         session_id = str(uuid4())  # Random
         self._language_code = language_code
         self.last_contexts = last_contexts if last_contexts else []
@@ -69,12 +66,9 @@ class DialogflowClient(object):
                                               sample_rate_hertz=self.RATE,
                                               phrase_hints=self.phrase_hints,
                                               model='command_and_search')
-
         self._output_audio_config = OutputAudioConfig(
-                audio_encoding=OutputAudioEncoding.
-                    OUTPUT_AUDIO_ENCODING_LINEAR_16
+                audio_encoding=OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16
         )
-
         # Create a session
         self._session_cli = dialogflow_v2beta1.SessionsClient()
         self._session = self._session_cli.session_path(project_id, session_id)
@@ -89,14 +83,12 @@ class DialogflowClient(object):
         text_event_topic = requests_topic + '/string_event'
         msg_req_topic = requests_topic + '/df_msg'
         event_req_topic = requests_topic + '/df_event'
-        self._results_pub = rospy.Publisher(results_topic,
-                                            DialogflowResult,
+        self._results_pub = rospy.Publisher(results_topic, DialogflowResult,
                                             queue_size=10)
         rospy.Subscriber(text_req_topic, String, self._text_request_cb)
         rospy.Subscriber(text_event_topic, String, self._text_event_cb)
         rospy.Subscriber(msg_req_topic, DialogflowRequest, self._msg_request_cb)
-        rospy.Subscriber(event_req_topic, DialogflowEvent,
-                         self._event_request_cb)
+        rospy.Subscriber(event_req_topic, DialogflowEvent, self._event_request_cb)
 
         """ Audio setup """
         # Mic stream input setup
@@ -108,8 +100,7 @@ class DialogflowClient(object):
         if self.PLAY_AUDIO:
             self._create_audio_output()
 
-        rospy.logdebug("DF_CLIENT: Last Contexts: {}".format(
-                self.last_contexts))
+        rospy.logdebug("DF_CLIENT: Last Contexts: {}".format(self.last_contexts))
         rospy.loginfo("DF_CLIENT: Ready!")
 
     # ========================================= #
@@ -199,7 +190,6 @@ class DialogflowClient(object):
         query_input = QueryInput(audio_config=self._audio_config)
         contexts = utils.converters.contexts_msg_to_struct(self.last_contexts)
         params = QueryParameters(contexts=contexts)
-        rospy.loginfo(params)
         req = StreamingDetectIntentRequest(
                 session=self._session,
                 query_input=query_input,
@@ -232,8 +222,7 @@ class DialogflowClient(object):
         :rtype: DialogflowResult
         """
         # Create the Query Input
-        text_input = TextInput(text=msg.query_text,
-                               language_code=self._language_code)
+        text_input = TextInput(text=msg.query_text, language_code=self._language_code)
         query_input = QueryInput(text=text_input)
         # Create QueryParameters
         user_contexts = utils.converters.contexts_msg_to_struct(msg.contexts)
@@ -247,10 +236,9 @@ class DialogflowClient(object):
                     query_params=params,
                     output_audio_config=self._output_audio_config
             )
-        except ServiceUnavailable:
-            rospy.logwarn("DF_CLIENT: 503 Deadline exceeded exception caught."
-                          "Maybe the response took too long or you aren't "
-                          "connected to the internet!")
+        except google.api_core.exceptions.ServiceUnavailable:
+            rospy.logwarn("DF_CLIENT: Deadline exceeded exception caught. The response "
+                          "took too long or you aren't connected to the internet!")
         else:
             # Store context for future use
             self.last_contexts = utils.converters.contexts_struct_to_msg(
@@ -279,12 +267,11 @@ class DialogflowClient(object):
                 rospy.logdebug(
                         'DF_CLIENT: Intermediate transcript: "{}".'.format(
                                 response.recognition_result.transcript))
-        except Cancelled as c:
+        except google.api_core.exceptions.Cancelled as c:
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
                           "exception:\n{}".format(c))
-        except Unknown as u:
-            rospy.logwarn("DF_CLIENT: Unknown Exception Caught:\nRequests: {}\nResponses: "
-                          "{}\n". format(requests, responses))
+        except google.api_core.exceptions.Unknown as u:
+            rospy.logwarn("DF_CLIENT: Unknown Exception Caught:\n{}".format(u))
         else:
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")
@@ -309,6 +296,12 @@ class DialogflowClient(object):
             return df_msg
 
     def event_intent(self, event):
+        """Send an event message to Dialogflow
+        :param event: The ROS event message
+        :type event: DialogflowEvent
+        :return: The result from dialogflow as a ROS msg
+        :rtype: DialogflowResult
+        """
         query_input = QueryInput(event=event)
         params = utils.converters.create_query_parameters(
                 contexts=self.last_contexts

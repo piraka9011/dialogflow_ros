@@ -4,14 +4,15 @@ from dialogflow_v2beta1.types import Context, EventInput, InputAudioConfig, \
     OutputAudioConfig, QueryInput, QueryParameters, \
     SentimentAnalysisRequestConfig, StreamingDetectIntentRequest, TextInput
 from dialogflow_ros.msg import *
-from output import print_context_parameters, print_result
+from output import print_context_parameters
 
 
 def parameters_struct_to_msg(parameters):
-    """
-
+    """Convert Dialogflow parameter (Google Struct) into ros msg
     :param parameters:
-    :return:
+    :type parameters: struct_pb2.Struct
+    :return: List of DF Param msgs or empty list
+    :rtype: (list of DialogflowParameter) or None
     """
     if parameters.items():
         return [DialogflowParameter(param_name=str(name), value=str(value))
@@ -20,16 +21,38 @@ def parameters_struct_to_msg(parameters):
         return []
 
 
+def params_msg_to_struct(parameters):
+    """Create a DF compatible parameter dictionary
+    :param parameters: DialogflowParameter message
+    :type parameters: list(DialogflowParameter)
+    :return: Parameters as a dictionary (Technically)
+    :rtype: struct_pb2.Struct
+    """
+    google_struct = struct_pb2.Struct()
+    for param in parameters:
+        google_struct[param.param_name] = param.value
+    return google_struct
+
+
 def events_msg_to_struct(event, language_code='en-US'):
-    return EventInput(name=event.event_name, parameters=event.parameters,
+    """Convert ROS Event Msg to DF Event
+    :param event: ROS Event Message
+    :type event: DialogflowEvent
+    :param language_code: Language code of event, default 'en-US'
+    :type language_code: str
+    :return: Dialogflow EventInput to send
+    :rtype: EventInput
+    """
+    return EventInput(name=event.event_name,
+                      parameters=event.parameters,
                       language_code=language_code)
 
 
 def contexts_struct_to_msg(contexts):
     """Utility function that fills the context received from Dialogflow into
     the ROS msg.
-    :param context: The output_context received from Dialogflow.
-    :type context: Context
+    :param contexts: The output_context received from Dialogflow.
+    :type contexts: Context
     :return: The ROS DialogflowContext msg.
     :rtype: DialogflowContext
     """
@@ -46,8 +69,8 @@ def contexts_struct_to_msg(contexts):
 def contexts_msg_to_struct(contexts):
     """Utility function that fills the context received from ROS into
     the Dialogflow msg.
-    :param context: The output_context received from ROS.
-    :type context: DialogflowContext
+    :param contexts: The output_context received from ROS.
+    :type contexts: DialogflowContext
     :return: The Dialogflow Context.
     :rtype: Context
     """
@@ -59,19 +82,6 @@ def contexts_msg_to_struct(contexts):
                               parameters=new_parameters)
         context_list.append(new_context)
     return context_list
-
-
-def params_msg_to_struct(parameters):
-    """Create a DF compatible parameter dictionary
-    :param parameters: DialogflowParameter message
-    :type parameters: list(DialogflowParameter)
-    :return: Parameters as a dictionary
-    :rtpe: dict
-    """
-    google_struct = struct_pb2.Struct()
-    for param in parameters:
-        google_struct[param.name] = param.value
-    return google_struct
 
 
 def create_query_parameters(contexts=None):
