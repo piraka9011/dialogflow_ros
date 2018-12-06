@@ -147,7 +147,6 @@ class DialogflowClient(object):
         assert isinstance(language_code, str), "Language code must be a string!"
         self._language_code = language_code
 
-
     # ==================================== #
     #           Utility Functions          #
     # ==================================== #
@@ -167,19 +166,6 @@ class DialogflowClient(object):
                                           channels=1,
                                           rate=24000,
                                           output=True)
-
-    def _play_stream(self, data):
-        """Simple function to play a the output Dialogflow response.
-        :param data: Audio in bytes.
-        """
-        self.stream_out.start_stream()
-        self.stream_out.write(data)
-        time.sleep(0.2)  # Wait for stream to finish
-        self.stream_out.stop_stream()
-
-    # -------------- #
-    #  DF Utilities  #
-    # -------------- #
 
     def _play_stream(self, data):
         """Simple function to play a the output Dialogflow response.
