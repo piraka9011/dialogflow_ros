@@ -29,7 +29,13 @@ def params_msg_to_struct(parameters):
     :rtype: struct_pb2.Struct
     """
     google_struct = struct_pb2.Struct()
+    count = 0
+    print(parameters)
     for param in parameters:
+        count += 1
+        print(count)
+        print("Param Value: {}".format(param.value))
+        print("Param Type: {}".format(type(param.value)))
         google_struct[param.param_name] = param.value
     return google_struct
 

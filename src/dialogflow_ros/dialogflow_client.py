@@ -306,7 +306,12 @@ class DialogflowClient(object):
         :return: The result from dialogflow as a ROS msg
         :rtype: DialogflowResult
         """
-        event_input = utils.converters.events_msg_to_struct(event)
+        # Convert if needed
+        if type(event) is DialogflowEvent:
+            event_input = utils.converters.events_msg_to_struct(event)
+        else:
+            event_input = event
+
         query_input = QueryInput(event=event_input)
         params = utils.converters.create_query_parameters(
                 contexts=self.last_contexts
@@ -325,8 +330,8 @@ class DialogflowClient(object):
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
-        self.detect_intent_stream()
-        # rospy.spin()
+        # self.detect_intent_stream()
+        rospy.spin()
 
     def exit(self):
         """Close as cleanly as possible"""
