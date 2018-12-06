@@ -269,9 +269,12 @@ class DialogflowClient(object):
                                 response.recognition_result.transcript))
         except google.api_core.exceptions.Cancelled as c:
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
-                          "exception:\n{}".format(c))
+                          "exception. Check request format!:\n{}".format(c))
         except google.api_core.exceptions.Unknown as u:
             rospy.logwarn("DF_CLIENT: Unknown Exception Caught:\n{}".format(u))
+        except google.api_core.exceptions.ServiceUnavailable:
+            rospy.logwarn("DF_CLIENT: Deadline exceeded exception caught. The response "
+                          "took too long or you aren't connected to the internet!")
         else:
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")
@@ -302,7 +305,8 @@ class DialogflowClient(object):
         :return: The result from dialogflow as a ROS msg
         :rtype: DialogflowResult
         """
-        query_input = QueryInput(event=event)
+        event_input = utils.converters.events_msg_to_struct(event)
+        query_input = QueryInput(event=event_input)
         params = utils.converters.create_query_parameters(
                 contexts=self.last_contexts
         )
@@ -312,7 +316,7 @@ class DialogflowClient(object):
                 query_params=params,
                 output_audio_config=self._output_audio_config
         )
-        df_msg = utils.converters.result_struct_to_msg(response)
+        df_msg = utils.converters.result_struct_to_msg(response.query_result)
         if self.PLAY_AUDIO:
             self._play_stream(response.output_audio)
         return df_msg

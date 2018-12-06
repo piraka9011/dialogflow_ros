@@ -15,7 +15,7 @@ def parameters_struct_to_msg(parameters):
     :rtype: (list of DialogflowParameter) or None
     """
     if parameters.items():
-        return [DialogflowParameter(param_name=str(name), value=str(value))
+        return [DialogflowParameter(param_name=str(name), value=value)
                 for name, value in parameters.items()]
     else:
         return []
@@ -43,8 +43,9 @@ def events_msg_to_struct(event, language_code='en-US'):
     :return: Dialogflow EventInput to send
     :rtype: EventInput
     """
+    parameters = params_msg_to_struct(event.parameters)
     return EventInput(name=event.event_name,
-                      parameters=event.parameters,
+                      parameters=parameters,
                       language_code=language_code)
 
 
