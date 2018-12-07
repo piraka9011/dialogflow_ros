@@ -15,8 +15,11 @@ def parameters_struct_to_msg(parameters):
     :rtype: (list of DialogflowParameter) or None
     """
     if parameters.items():
-        return [DialogflowParameter(param_name=str(name), value=value)
-                for name, value in parameters.items()]
+        param_list = []
+        for name, value in parameters.items():
+            param = DialogflowParameter(param_name=str(name), value=[str(value)])
+            param_list.append(param)
+        return param_list
     else:
         return []
 
@@ -29,13 +32,7 @@ def params_msg_to_struct(parameters):
     :rtype: struct_pb2.Struct
     """
     google_struct = struct_pb2.Struct()
-    count = 0
-    print(parameters)
     for param in parameters:
-        count += 1
-        print(count)
-        print("Param Value: {}".format(param.value))
-        print("Param Type: {}".format(type(param.value)))
         google_struct[param.param_name] = param.value
     return google_struct
 
