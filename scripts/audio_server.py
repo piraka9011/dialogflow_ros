@@ -51,8 +51,7 @@ class AudioServer:
             while True:
                 # select() waits until an object is readable. Here this means
                 # it will wait until there is data to be read from the socket
-                readable, writable, errored = select.select(self.read_list,
-                                                            [], [])
+                readable, writable, errored = select.select(self.read_list, [], [])
                 for s in readable:
                     if s is self.serversocket:
                         (clientsocket, address) = self.serversocket.accept()

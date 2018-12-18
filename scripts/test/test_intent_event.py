@@ -29,4 +29,3 @@ if __name__ == '__main__':
     event_input = DialogflowEvent(event_name=event_name,
                                   parameters=[parameters])
     print(dc.event_intent(event_input))
-
