@@ -330,7 +330,6 @@ class DialogflowClient(object):
     def start(self):
         """Start the dialogflow client"""
         rospy.loginfo("DF_CLIENT: Spinning...")
-        # self.detect_intent_stream()
         rospy.spin()
 
     def exit(self):
@@ -341,8 +340,7 @@ class DialogflowClient(object):
 
 
 if __name__ == '__main__':
-    rospy.init_node('dialogflow_client', log_level=rospy.DEBUG)
-    # rospy.init_node('dialogflow_client')
+    rospy.init_node('dialogflow_client')
     df = DialogflowClient()
     df.start()
     # df.detect_intent_stream()
