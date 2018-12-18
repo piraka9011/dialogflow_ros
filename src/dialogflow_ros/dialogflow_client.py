@@ -147,7 +147,6 @@ class DialogflowClient(object):
         assert isinstance(language_code, str), "Language code must be a string!"
         self._language_code = language_code
 
-
     # ==================================== #
     #           Utility Functions          #
     # ==================================== #
@@ -167,19 +166,6 @@ class DialogflowClient(object):
                                           channels=1,
                                           rate=24000,
                                           output=True)
-
-    def _play_stream(self, data):
-        """Simple function to play a the output Dialogflow response.
-        :param data: Audio in bytes.
-        """
-        self.stream_out.start_stream()
-        self.stream_out.write(data)
-        time.sleep(0.2)  # Wait for stream to finish
-        self.stream_out.stop_stream()
-
-    # -------------- #
-    #  DF Utilities  #
-    # -------------- #
 
     def _play_stream(self, data):
         """Simple function to play a the output Dialogflow response.
@@ -284,9 +270,12 @@ class DialogflowClient(object):
                                 response.recognition_result.transcript))
         except google.api_core.exceptions.Cancelled as c:
             rospy.logwarn("DF_CLIENT: Caught a Google API Client cancelled "
-                          "exception:\n{}".format(c))
+                          "exception. Check request format!:\n{}".format(c))
         except google.api_core.exceptions.Unknown as u:
             rospy.logwarn("DF_CLIENT: Unknown Exception Caught:\n{}".format(u))
+        except google.api_core.exceptions.ServiceUnavailable:
+            rospy.logwarn("DF_CLIENT: Deadline exceeded exception caught. The response "
+                          "took too long or you aren't connected to the internet!")
         else:
             if response is None:
                 rospy.logwarn("DF_CLIENT: No response received!")
@@ -317,7 +306,13 @@ class DialogflowClient(object):
         :return: The result from dialogflow as a ROS msg
         :rtype: DialogflowResult
         """
-        query_input = QueryInput(event=event)
+        # Convert if needed
+        if type(event) is DialogflowEvent:
+            event_input = utils.converters.events_msg_to_struct(event)
+        else:
+            event_input = event
+
+        query_input = QueryInput(event=event_input)
         params = utils.converters.create_query_parameters(
                 contexts=self.last_contexts
         )
@@ -327,7 +322,7 @@ class DialogflowClient(object):
                 query_params=params,
                 output_audio_config=self._output_audio_config
         )
-        df_msg = utils.converters.result_struct_to_msg(response)
+        df_msg = utils.converters.result_struct_to_msg(response.query_result)
         if self.PLAY_AUDIO:
             self._play_stream(response.output_audio)
         return df_msg
@@ -348,3 +343,4 @@ if __name__ == '__main__':
     rospy.init_node('dialogflow_client')
     df = DialogflowClient()
     df.start()
+    # df.detect_intent_stream()
