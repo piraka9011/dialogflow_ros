@@ -56,8 +56,6 @@ catkin_package(
 ## Build ##
 ###########
 
-add_executable(test_intent_event scripts/test/test_intent_event.cpp)
-target_link_libraries(test_intent_event ${catkin_LIBRARIES})
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
@@ -65,6 +63,9 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
+add_executable(test_intent_event scripts/test/test_intent_event.cpp)
+add_dependencies(test_intent_event external_package_generate_messages_cpp  ${${PROJECT_NAME}_EXPORTED_TARGETS})
+target_link_libraries(test_intent_event ${catkin_LIBRARIES} )
 
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
