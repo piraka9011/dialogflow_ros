@@ -34,16 +34,45 @@ export GOOGLE_APPLICATION_CREDENTIALS='/path/to/key'
 ```
  4. Run the authentication command:
 ```bash
-gcloud auth activate-service-account --key-file GOOGLE_APPLICATION_CREDENTIALS
+gcloud auth activate-service-account --key-file $GOOGLE_APPLICATION_CREDENTIALS
 ```
 
 ## Dialogflow Setup
 Follow the steps [here](https://dialogflow.com/docs/reference/v2-auth-setup) to setup authentication with Dialogflow. Note the name of your `project-id` and make sure to change that in `config/params.yaml`.
 
+## Snowboy Setup
+While a compiled `.so` of the library exists in the repo, you may need to compile one for your own system if you get a error complaining that `_snowboydetect.so` was not found.
+Clone the Snowboy [repo](https://github.com/Kitt-AI/snowboy) to some directory and install the dependencies: 
+```
+sudo apt-get install python-pyaudio python3-pyaudio sox
+sudo apt-get install libatlas-base-dev
+sudo apt-get install libpcre3 libpcre3-dev
+pip install pyaudio
+```
+
+Then install swig in some other directory
+```
+wget http://downloads.sourceforge.net/swig/swig-3.0.10.tar.gz
+
+./configure --prefix=/usr --without-clisp --without-maximum-compile-warnings
+make
+make install
+install -v -m755 -d /usr/share/doc/swig-3.0.10
+cp -v -R Doc/* /usr/share/doc/swig-3.0.10
+```
+
+Now go back to your Snowboy repo and run the following:  
+```
+cd swig/Python
+make
+```
+
+SWIG will generate a `_snowboydetect.so` file and a simple (but hard-to-read) python wrapper `snowboydetect.py`. Move this to `/dialogflow_ros/scripts/snowboy` replacing the original one. 
+
 # Usage
 Follow the steps below to setup the package properly.
 
-## Configure topics
+## Configuration
 Go into the config directory and change the following parameters in the `params.yaml` file:
 
 * `results_topic`: (Optional) The topic where your results will be published.
@@ -53,6 +82,10 @@ Go into the config directory and change the following parameters in the `params.
 To start the Dialogflow nodes, run the following command:
 ```bash
 roslaunch dialogflow_ros dialogflow.launch
+```
+To use Snowboy hotword detection run:
+```bash
+roslaunch dialogflow_ros hotword_df.launch
 ```
 
 # ROS Nodes
